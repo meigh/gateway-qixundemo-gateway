@@ -1,0 +1,93 @@
+server {
+    listen 8080;
+
+    # ========= Basic Auth（统一管 web + bot） =========
+    auth_basic "Restricted";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+    # ========= Health Check（不鉴权） =========
+    location = / {
+        auth_basic off;
+        default_type text/plain;
+        return 200 "Gateway OK\n";
+    }
+
+    # ========= realestate-web =========
+    location = /realestate-web {
+        return 301 /realestate-web/;
+    }
+
+    location ^~ /realestate-web/ {
+      add_header X-Qixun-Gateway "nginx-gateway" always;
+
+        proxy_set_header Host realestate-web-369629851192.asia-northeast1.run.app;
+        proxy_ssl_server_name on;
+
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_pass https://realestate-web-369629851192.asia-northeast1.run.app/;
+    }
+
+   # ========= realestate-bot =========
+location = /realestate-bot {
+    return 301 /realestate-bot/;
+}
+
+# ========= realestate-bot v1.1 (api-v11) =========
+location = /realestate-bot/v1.1 {
+    return 301 /realestate-bot/v1.1/;
+}
+
+location ^~ /realestate-bot/v1.1/ {
+    add_header X-Qixun-Gateway "nginx-gateway" always;
+
+    proxy_set_header Host api-v11-369629851192.asia-northeast1.run.app;
+    proxy_ssl_server_name on;
+
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_pass https://api-v11-369629851192.asia-northeast1.run.app/;
+}
+
+# ========= realestate-bot stable (v1.0 now) =========
+location ^~ /realestate-bot/ {
+    add_header X-Qixun-Gateway "nginx-gateway" always;
+
+    proxy_set_header Host realestate-bot-369629851192.asia-northeast1.run.app;
+    proxy_ssl_server_name on;
+
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_pass https://realestate-bot-369629851192.asia-northeast1.run.app/;
+}
+
+# ========= Stable OpenAPI（显式，便于未来切 stable） =========
+location = /realestate-bot/openapi.json {
+    add_header X-Qixun-Gateway "nginx-gateway" always;
+
+    proxy_set_header Host realestate-bot-369629851192.asia-northeast1.run.app;
+    proxy_ssl_server_name on;
+
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_pass https://realestate-bot-369629851192.asia-northeast1.run.app/openapi.json;
+}
+
+# ========= Swagger UI 兼容：根 /openapi.json → stable =========
+location = /openapi.json {
+    add_header X-Qixun-Gateway "nginx-gateway" always;
+    return 302 /realestate-bot/openapi.json;
+}
+
+# ========= 最终兜底（必须保留） =========
+location / {
+    return 404;
+}
