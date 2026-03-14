@@ -44,6 +44,7 @@ Backend services such as `openclaw-poc` should be deployed separately and sit be
 ```text
 .
 ├── Dockerfile
+├── README.md
 ├── VERSIONING.md
 ├── conf.d
 │   ├── default.conf
@@ -57,37 +58,35 @@ Backend services such as `openclaw-poc` should be deployed separately and sit be
 │       ├── 45-realestate-bot-v1_2.conf
 │       ├── 55-realestate-bot-canary.conf
 │       ├── 90-openapi-fallback.conf
-│       └── 99-catchall-404.conf
+│       ├── 99-catchall-404.conf
+│       └── 15-openclaw-poc-runtime.conf
 └── nginx.conf
+```
 
-Deployment-critical files
+### Deployment-critical files
 
-Dockerfile
-
-nginx.conf
-
-conf.d/default.conf
-
-conf.d/routes/*.conf
+- `Dockerfile`
+- `nginx.conf`
+- `conf.d/default.conf`
+- `conf.d/routes/*.conf`
 
 Any deployment should treat these files as the source of truth for gateway behavior.
 
-4. Deployment Model
+---
+
+## 4. Deployment Model
 
 The recommended model is:
 
-Build the Nginx image from this repository
-
-Push the image to a container registry
-
-Deploy the image to a container hosting target such as Cloud Run
-
-Point public traffic to this gateway
-
-Let this gateway route traffic to backend services
+1. Build the Nginx image from this repository
+2. Push the image to a container registry
+3. Deploy the image to a container hosting target such as Cloud Run
+4. Point public traffic to this gateway
+5. Let this gateway route traffic to backend services
 
 Typical flow:
 
+```text
 User / Client
    |
    v
@@ -98,409 +97,370 @@ Cloud backend services
    |
    v
 Application response
-5. Prerequisites
+```
+
+---
+
+## 5. Prerequisites
 
 Before deployment, make sure you have:
 
-a working container build environment
+- a working container build environment
+- access to a container registry
+- access to the deployment platform
+- known upstream backend URLs / hosts
+- a clear version-routing plan
+- a rollback plan
 
-access to a container registry
+### Recommended prerequisites checklist
 
-access to the deployment platform
+- route config reviewed
+- stable/beta/legacy target mapping confirmed
+- upstream service health verified
+- auth policy confirmed
+- image tag decided
+- release note written
 
-known upstream backend URLs / hosts
+---
 
-a clear version-routing plan
-
-a rollback plan
-
-Recommended prerequisites checklist
-
-route config reviewed
-
-stable/beta/legacy target mapping confirmed
-
-upstream service health verified
-
-auth policy confirmed
-
-image tag decided
-
-release note written
-
-6. Build the Image
+## 6. Build the Image
 
 From the repository root:
 
+```bash
 docker build -t gateway-qixundemo-gateway:local .
-Optional tagged build
+```
+
+### Optional tagged build
+
+```bash
 docker build -t gateway-qixundemo-gateway:2026-03-14 .
-What this does
+```
+
+### What this does
 
 The image packages:
 
-nginx.conf
-
-conf.d/
-
-route configuration
+- `nginx.conf`
+- `conf.d/`
+- route configuration
 
 into an Nginx-based gateway container.
 
-7. Local Container Smoke Check
+---
+
+## 7. Local Container Smoke Check
 
 Before pushing to cloud, it is recommended to run the image locally:
 
+```bash
 docker run --rm -p 8080:8080 gateway-qixundemo-gateway:local
+```
 
 Then test basic routes:
 
+```bash
 curl -i http://127.0.0.1:8080/
 curl -i http://127.0.0.1:8080/health
-What to verify locally
+```
 
-Nginx starts successfully
+### What to verify locally
 
-syntax/config is valid
+- Nginx starts successfully
+- syntax/config is valid
+- expected routes are loaded
+- fallback behavior works
+- health route responds
+- catch-all behavior is as expected
 
-expected routes are loaded
+---
 
-fallback behavior works
-
-health route responds
-
-catch-all behavior is as expected
-
-8. Optional Config Validation Before Deployment
+## 8. Optional Config Validation Before Deployment
 
 It is strongly recommended to validate Nginx config before shipping:
 
+```bash
 docker run --rm gateway-qixundemo-gateway:local nginx -t
+```
 
 If you want to validate using the official Nginx image and the current repo contents:
 
-docker run --rm \
-  -v "$(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  -v "$(pwd)/conf.d:/etc/nginx/conf.d:ro" \
-  nginx:1.29-alpine nginx -t
+```bash
+docker run --rm   -v "$(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro"   -v "$(pwd)/conf.d:/etc/nginx/conf.d:ro"   nginx:1.29-alpine nginx -t
+```
 
 Deployment should not proceed if config validation fails.
 
-9. Image Push
+---
+
+## 9. Image Push
 
 Example generic flow:
 
+```bash
 docker tag gateway-qixundemo-gateway:2026-03-14 <registry>/<project>/gateway-qixundemo-gateway:2026-03-14
 docker push <registry>/<project>/gateway-qixundemo-gateway:2026-03-14
+```
 
 Replace:
 
-<registry>
-
-<project>
+- `<registry>`
+- `<project>`
 
 with your actual registry target.
 
 Use immutable image tags for release builds whenever possible.
 
-10. Cloud Deployment
+---
+
+## 10. Cloud Deployment
 
 This repository is suitable for container-based ingress deployment, including Cloud Run.
 
-Generic deployment flow
+### Generic deployment flow
 
-Deploy the container image
+1. deploy the container image
+2. set the exposed container port expected by the platform
+3. configure domain / ingress
+4. confirm upstream target availability
+5. verify health route
+6. verify stable route
+7. verify legacy / beta route behavior
 
-set the exposed container port expected by the platform
+### Important note
 
-configure domain / ingress
-
-confirm upstream target availability
-
-verify health route
-
-verify stable route
-
-verify legacy / beta route behavior
-
-Important note
-
-This gateway should be deployed in front of backend services.
+This gateway should be deployed **in front of backend services**.  
 It should not contain business logic itself.
 
-11. Route Configuration Strategy
+---
 
-Route files under conf.d/routes/ should be treated as deployment-governing assets.
+## 11. Route Configuration Strategy
 
-Recommended route priorities
+Route files under `conf.d/routes/` should be treated as deployment-governing assets.
 
-health route first
+### Recommended route priorities
 
-explicit version routes before generic fallback
+- health route first
+- explicit version routes before generic fallback
+- stable route clearly separated
+- legacy route explicitly preserved
+- canary/beta route isolated
+- runtime bridge route before business/demo routes
+- catch-all route last
 
-stable route clearly separated
-
-legacy route explicitly preserved
-
-canary/beta route isolated
-
-catch-all route last
-
-Recommended naming pattern
+### Recommended naming pattern
 
 The current numeric prefix ordering is good practice:
 
-05-...
-
-10-...
-
-20-...
-
-...
-
-99-...
+- `05-...`
+- `10-...`
+- `15-...`
+- `20-...`
+- ...
+- `99-...`
 
 Keep this pattern because it makes route load order and intent easier to review.
 
-12. Stable / Beta / Legacy Deployment Policy
+---
+
+## 12. Stable / Beta / Legacy Deployment Policy
 
 Use explicit policies for traffic exposure.
 
-Stable
-
+### Stable
 The public default entrypoint.
 
 Use this for:
+- normal users
+- standard integrations
+- the currently approved release
 
-normal users
-
-standard integrations
-
-the currently approved release
-
-Beta / Canary
-
+### Beta / Canary
 Limited exposure.
 
 Use this for:
+- internal testing
+- preview environments
+- controlled validation before stable promotion
 
-internal testing
-
-preview environments
-
-controlled validation before stable promotion
-
-Legacy
-
+### Legacy
 Preserved compatibility route.
 
 Use this for:
+- historical versions
+- compatibility support
+- cases where an older stable path must remain intact
 
-historical versions
+### Operational rule
 
-compatibility support
-
-cases where an older stable path must remain intact
-
-Operational rule
-
-Do not repurpose legacy as a moving alias.
+Do not repurpose legacy as a moving alias.  
 Legacy should remain fixed.
 
-Stable may move.
-Beta/canary may move.
+Stable may move.  
+Beta/canary may move.  
 Legacy should remain stable.
 
 See also:
 
-VERSIONING.md
+- `VERSIONING.md`
 
-13. Recommended Release Procedure
-Step 1 — review route intent
+---
 
+## 13. Recommended Release Procedure
+
+### Step 1 — review route intent
 Before release, confirm:
 
-what stable points to
+- what stable points to
+- what beta points to
+- what legacy points to
+- what `/runtime/*` points to
+- whether any fixed version routes changed
 
-what beta points to
-
-what legacy points to
-
-whether any fixed version routes changed
-
-Step 2 — validate config
-
+### Step 2 — validate config
 Run:
 
+```bash
 nginx -t
+```
 
 or the containerized equivalent.
 
-Step 3 — build tagged image
-
+### Step 3 — build tagged image
 Use an immutable tag for traceability.
 
-Step 4 — deploy to target environment
-
+### Step 4 — deploy to target environment
 Deploy the container without changing multiple unrelated things at once.
 
-Step 5 — verify health and key routes
-
+### Step 5 — verify health and key routes
 At minimum verify:
 
-health route
+- health route
+- runtime route
+- stable route
+- one fixed version route
+- catch-all behavior
 
-stable route
-
-one fixed version route
-
-catch-all behavior
-
-Step 6 — monitor ingress behavior
-
+### Step 6 — monitor ingress behavior
 Watch:
 
-error rate
+- error rate
+- routing behavior
+- auth behavior
+- unexpected upstream failures
 
-routing behavior
+---
 
-auth behavior
-
-unexpected upstream failures
-
-14. Recommended Rollback Procedure
+## 14. Recommended Rollback Procedure
 
 Rollback should be simple and route-focused.
 
-Preferred rollback strategy
+### Preferred rollback strategy
 
 Rollback by restoring the previous known-good image and/or previous known-good route mapping.
 
-Minimum rollback playbook
+### Minimum rollback playbook
 
-identify last known-good image tag
+1. identify last known-good image tag
+2. restore last known-good route config
+3. redeploy gateway
+4. verify health route
+5. verify runtime route
+6. verify stable route
+7. confirm public behavior recovered
 
-restore last known-good route config
+### Important principle
 
-redeploy gateway
-
-verify health route
-
-verify stable route
-
-confirm public behavior recovered
-
-Important principle
-
-Rollback should happen at the edge routing layer, not by emergency rewriting backend logic.
+Rollback should happen at the **edge routing layer**, not by emergency rewriting backend logic.
 
 This repository should make rollback easier, not harder.
 
-15. Post-Deployment Verification Checklist
+---
+
+## 15. Post-Deployment Verification Checklist
 
 After deployment, verify the following:
 
-Health
+### Health
+- health route responds correctly
+- service is reachable externally if intended
 
-health route responds correctly
+### Routing
+- runtime route goes to the intended backend
+- stable route goes to the intended backend
+- beta/canary route goes to the intended backend
+- legacy route still works if expected
+- fallback route behavior is correct
+- unknown routes return expected 404 behavior
 
-service is reachable externally if intended
+### Security / Access
+- auth policy works as expected
+- unauthorized access is denied where intended
+- no unintended public exposure exists
 
-Routing
+### Observability
+- access logs are visible
+- request tracing is sufficient for debugging
+- upstream failures are diagnosable
 
-stable route goes to the intended backend
+---
 
-beta/canary route goes to the intended backend
+## 16. Operational Notes
 
-legacy route still works if expected
-
-fallback route behavior is correct
-
-unknown routes return expected 404 behavior
-
-Security / Access
-
-auth policy works as expected
-
-unauthorized access is denied where intended
-
-no unintended public exposure exists
-
-Observability
-
-access logs are visible
-
-request tracing is sufficient for debugging
-
-upstream failures are diagnosable
-
-16. Operational Notes
-Keep this repository narrow in purpose
-
+### Keep this repository narrow in purpose
 Avoid mixing deployment responsibilities with application business logic.
 
-Prefer explicit route files
-
+### Prefer explicit route files
 Do not hide important behavior in too many implicit defaults.
 
-Keep stable/beta/legacy intent obvious
-
+### Keep stable/beta/legacy intent obvious
 A future operator should be able to understand the traffic policy quickly from filenames and config.
 
-Use release notes
-
+### Use release notes
 Every deployment should have:
+- image tag
+- route intent
+- stable target
+- rollback target
 
-image tag
+---
 
-route intent
-
-stable target
-
-rollback target
-
-17. Future Improvements
+## 17. Future Improvements
 
 These are good future enhancements for this gateway:
 
-request ID injection / forwarding
+- request ID injection / forwarding
+- upstream timing in access logs
+- clearer health/readiness route semantics
+- environment-specific config overlays
+- documented rollout and rollback scripts
+- deployment examples for Cloud Run
+- stronger auth/access patterns if needed
 
-upstream timing in access logs
+These should still remain **edge-layer concerns**, not control-plane concerns.
 
-clearer health/readiness route semantics
+---
 
-environment-specific config overlays
-
-documented rollout and rollback scripts
-
-deployment examples for Cloud Run
-
-stronger auth/access patterns if needed
-
-These should still remain edge-layer concerns, not control-plane concerns.
-
-18. Non-Goals for This Deployment Guide
+## 18. Non-Goals for This Deployment Guide
 
 This document does not define:
 
-OpenClaw backend deployment internals
-
-session persistence deployment
-
-database topology
-
-tool executor scaling
-
-LLM service deployment
-
-full production SRE procedures
+- OpenClaw backend deployment internals
+- session persistence deployment
+- database topology
+- tool executor scaling
+- LLM service deployment
+- full production SRE procedures
 
 Those should be documented in backend repositories or higher-level architecture docs.
 
-19. Related Documents
+---
 
-README.md
+## 19. Related Documents
 
-VERSIONING.md
+- `README.md`
+- `VERSIONING.md`
+- `docs/edge-gateway-phase1-route-changes.md`
+- `openclaw-poc/docs/cloud-edge-architecture.md`
 
-openclaw-poc/docs/cloud-edge-architecture.md
+---

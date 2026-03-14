@@ -1,269 +1,234 @@
-# Qixun Realestate-Bot Versioning & Release Strategy
+# Versioning Strategy
 
-本文档定义 Realestate-Bot 网关的版本发布、冻结、稳定映射规则，确保上线升级时不影响历史版本和用户体验。
+## 1. Purpose
 
----
+This document defines the versioning strategy for `gateway-qixundemo-gateway` as an **Edge Gateway**.
 
-## 1. Version Types（版本类型）
+It explains how this gateway should handle:
 
-系统区分三种版本类型：
+- stable routes
+- legacy routes
+- fixed version routes
+- beta / canary routes
+- future cloud migration routing
 
-| 类型 | 路径示例 | 说明 |
-|---|---|---|
-| **Legacy（冻结版）** | `/realestate-bot/v1.0-legacy/` | 永久冻结，不再改动 |
-| **Stable（当前对外稳定版）** | `/realestate-bot/` | 稳定对外 API（随业务升级） |
-| **Next / Beta（预发布版，可选）** | `/realestate-bot/beta/` | 可用于试验或灰度（可关闭） |
-
----
-
-## 2. UI + API 绑定原则
-
-每个版本包含两套资源：
-
-✔ UI (HTML/JS/CSS 等前端)  
-✔ API (REST JSON)
-
-绑定关系如下：
-
-| 版本 | UI | API |
-|---|---|---|
-| `v1.0-legacy` | 旧 UI | 旧 API |
-| `v1.2 stable` | 新 UI | 新 API |
-
-Legacy 永远绑定它诞生当下的 API，不随 Stable 变化。
+This repository is the **edge ingress layer**, not the assistant control plane.
 
 ---
 
-## 3. 路由策略（网关层）
+## 2. Core Principles
 
-### 3.1 Legacy 冻结策略
+### 2.1 Stable is the main public route
+Stable is the default entrypoint for normal users and integrations.
 
-特点：
+Stable may move from one backend version to another over time.
 
-- 不允许改动原始服务路径
-- 不随 Cloud Run 修改
-- UI + API 一起冻结
+### 2.2 Legacy should remain fixed
+Legacy should not be reused as a moving alias.
 
-示例路径：
+Legacy exists to preserve compatibility and provide a known old path that continues to work.
 
-/realestate-bot/v1.0-legacy/
+### 2.3 Versioned routes are explicit
+Versioned routes such as `v1_1` or `v1_2` should map to one specific backend version.
 
-网关配置原则：
+These are useful for:
 
-rewrite /realestate-bot/v1.0-legacy/(.*) → /$1
-proxy_pass → legacy Cloud Run host
-proxy_set_header Host → legacy Cloud Run host
+- explicit testing
+- controlled client pinning
+- rollback comparison
+- release validation
 
+### 2.4 Beta / Canary are limited exposure routes
+Beta / canary routes should be used for preview or controlled exposure.
 
-因此：
+They should not silently replace stable.
 
-- **不使用** `$upstream`
-- Cloud Run 必须看到原始 Host
-- 不得指向 stable/next
+### 2.5 Edge Gateway owns ingress versioning, not business logic
+The gateway decides **which upstream receives traffic**.
 
----
-
-### 3.2 Stable 映射策略
-
-Stable 为正在对外的 API/UI，例如：
-
-/realestate-bot/
-
-Stable 会随业务升级进行版本切换：
-
-| 时间点 | stable 指向 |
-|---|---|
-| 2024Q4 | v1.0 |
-| 2025Q1 | v1.2 |
-| 未来 | v1.3 / v1.4 / ... |
-
-映射规则：
-
-/realestate-bot/ → 当前 Stable Cloud Run 版本
-
-即 Stable 是一个 **alias**。
+It does not decide application behavior, session logic, tool orchestration, or assistant semantics.
 
 ---
 
-### 3.3 Beta / Next（可选）
+## 3. Route Categories
 
-如果存在：
+## 3.1 Stable
 
-/realestate-bot/beta/
+Use stable for:
 
-可做功能预览或 A/B Test  
-上线 stable 后可关闭或删除。
+- default public entry
+- the currently approved version
+- normal production/demo traffic
 
----
+Stable should be easy to switch during rollout.
 
-## 4. 发布流程（不影响 Legacy 的前提下）
+Example:
+- `/realestate-bot/` → currently mapped to `v1.2`
 
-### **永不破坏 Legacy 的发布流程**
+## 3.2 Legacy
 
-稳定升级步骤：
+Use legacy for:
 
-**Step 1: 冻结当前版本为 Legacy（仅第一次创建）**
-/realestate-bot/v1.0-legacy/ → 绑定旧 Cloud Run
+- compatibility preservation
+- old documentation references
+- fallback access to a known older route
 
-**Step 2: 部署新 Cloud Run（例如 v1.2）**
+Legacy should stay fixed once published.
 
-**Step 3: 将 Stable 映射切换到新 Cloud Run**
+Example:
+- `/realestate-bot-v1_0-legacy/`
 
-/realestate-bot/ → v1.2
+## 3.3 Explicit Version Routes
 
-**Step 4: 可选关闭 Beta**
+Use explicit version routes for:
 
-/realestate-bot/beta → 410 或 remove
+- validating a specific backend version
+- testing upgrades without changing stable
+- comparing old and new behavior
 
-全过程中：
+Examples:
+- `/realestate-bot-v1_1/`
+- `/realestate-bot-v1_2/`
 
-❗ **Legacy 永不修改**  
-❗ **Stable 改映射，不改 Legacy**
+## 3.4 Beta / Canary
 
----
+Use beta / canary for:
 
-## 5. Freeze 规则（冻结原则）
+- internal preview
+- limited external validation
+- release candidate exposure
 
-Legacy 必须满足以下条件：
-
-UI 不变
-✓ API 不变
-✓ Cloud Run host 不变
-✓ proxy_set_header Host 指向 legacy host
-✓ rewrite 去掉 version 前缀后仍匹配 legacy API
-
-
-禁止行为：
-
-✗ Stable 反向代理到 Legacy
-✗ Legacy 指向 Stable
-✗ Legacy 指向 Latest
-✗ 修改 legacy Cloud Run
-
+Examples:
+- `/realestate-bot-beta/`
+- `/realestate-bot-canary/`
 
 ---
 
-## 6. Cloud Run 映射规范
+## 4. Domain Role Alignment
 
-Legacy 使用固定 Host：
+The versioning strategy must respect current domain roles.
 
-realestate-bot-xxxxxxxx.asia-northeast1.run.app
+### 4.1 `gateway.qixundemo.com`
+This is the **Edge Gateway ingress domain**.
 
+It should be used for:
 
-Stable 使用版本化 Host：
+- bridge-facing runtime ingress
+- gateway-level routing
+- future `/runtime/*` entry
+- stable cloud migration ingress
 
+### 4.2 `api.qixundemo.com`
+This is the **business/API-facing domain**.
 
+It should be used for:
 
-realestate-bot-v1-2-xxxxxxxx.asia-northeast1.run.app
+- business/demo-facing URLs
+- product-facing routes such as `/realestate`
 
-
-未来版本示例：
-
-
-
-realestate-bot-v1-3-xxxxxxxx.asia-northeast1.run.app
-realestate-bot-v1-4-xxxxxxxx.asia-northeast1.run.app
-
-
----
-
-## 7. 网关测试检查表（QA Checklist）
-
-发布前必须检查：
-
-### ✔ Legacy 检查
-
-
-
-curl -I https://api.qixundemo.com/realestate-bot/v1.0-legacy/
-
-curl -u admin:pwd https://api.qixundemo.com/realestate-bot/v1.0-legacy/
-
-
-验证：
-
-☑ HTTP 200/401（取决于是否需要认证）  
-☑ UI 能展示  
-☑ API 正常返回  
-☑ X-Qixun-Legacy header 存在  
-☑ Host header 为 legacy Cloud Run host  
-
-### ✔ Stable 检查
-
-
-
-curl -I https://api.qixundemo.com/realestate-bot/health
-
-
-验证：
-
-☑ 返回 `"version": "v1.2"`  
-☑ 200 OK
+The same gateway service may receive both domains, but the route semantics should remain distinct.
 
 ---
 
-## 8. 未来升级方法（v1.3 示例）
+## 5. Versioning Rules for Business Routes
 
-当 v1.3 准备上线：
+For business/demo-facing routes:
 
+- stable may move
+- legacy stays fixed
+- explicit version routes stay fixed
+- beta/canary may move or be removed
 
+Recommended route order:
 
-Deploy Cloud Run (v1.3)
-Switch /realestate-bot/ → v1.3
+1. health
+2. runtime bridge ingress
+3. business web/API routes
+4. legacy routes
+5. stable route
+6. explicit version routes
+7. beta/canary routes
+8. fallback
+9. catch-all
 
-
-无需 Touch：
-
-
-
-/realestate-bot/v1.0-legacy/
-
-
-因此 Legacy 不会受到任何影响。
-
----
-
-## 9. 回滚策略
-
-Stable 支持快速回滚：
-
-
-
-/realestate-bot/ → v1.2
-
-
-Legacy 永远无需回滚。
+If the actual route order differs for operational reasons, the intent should still remain clear.
 
 ---
 
-## 10. Why Legacy Exists?
+## 6. Versioning Rules for Cloud Migration Phase 1
 
-Legacy 的存在保障：
+During Cloud Migration Phase 1:
 
-- 产品 Demo 可回溯
-- UI 不被破坏
-- API 不随业务变化
-- 客户可以同时看多个版本
+- existing business/demo route strategy remains intact
+- a new runtime ingress route is added
+- the Edge Gateway gains a new responsibility:
+  - route `/runtime/*` for local `qq_bridge.py` cutover
 
----
+This does **not** change the meaning of stable/legacy/business version routes.
 
-## 11. 版本命名规范（推荐）
-
-| 类型 | 示例 |
-|---|---|
-| Legacy | `v1.0-legacy` |
-| Stable | `v1.2` |
-| Next | `v1.3-beta` |
+It adds a **bridge-facing backend ingress path**, not a new business version policy.
 
 ---
 
-## End
+## 7. Stable Promotion Policy
 
-此策略已验证支持：
+Before changing stable:
 
-✔ UI 冻结  
-✔ API 冻结  
-✔ Cloud Run 多版本  
-✔ 多年向后兼容  
-✔ 快速 stable 升级  
-✔ 无需影响 legacy
+1. validate the target version directly
+2. validate business route behavior
+3. validate health route
+4. validate any dependent docs/demo paths
+5. confirm rollback target exists
+
+Only then repoint stable.
+
+---
+
+## 8. Rollback Policy
+
+Preferred rollback strategy:
+
+- rollback by repointing stable to the last known-good upstream
+- preserve explicit version routes for diagnostics
+- keep legacy fixed
+- avoid changing multiple version categories at once
+
+For runtime bridge ingress rollback during Phase 1:
+
+- edge route can be reverted independently
+- local `qq_bridge.py` can be pointed back to local Runtime
+- backend rollback should be separate from edge rollback when possible
+
+---
+
+## 9. Naming Guidance
+
+Use route names that make intent obvious.
+
+Good examples:
+
+- `stable`
+- `legacy`
+- `v1_1`
+- `v1_2`
+- `beta`
+- `canary`
+- `runtime`
+
+Avoid ambiguous names that hide whether a route is fixed, moving, or experimental.
+
+---
+
+## 10. Current Recommendation
+
+Use this versioning model:
+
+- **Stable** = moving default entry
+- **Legacy** = fixed compatibility entry
+- **Versioned routes** = fixed explicit entries
+- **Beta/Canary** = limited preview entries
+- **Runtime ingress** = bridge/backend entry, separate from business route versioning
+
+This keeps the edge gateway simple, diagnosable, and rollback-friendly.
+
+---
