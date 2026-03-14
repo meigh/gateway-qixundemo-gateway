@@ -1,2 +1,30 @@
 .venv/
-conf.d/
+# === Phase 1 secret / config exclusions ===
+
+# credentials
+conf.d/.htpasswd
+*.htpasswd
+
+# local env / secrets
+.env
+.env.*
+*.secret
+*.secrets
+*.key
+*.pem
+*.p12
+
+# python virtual env
+.venv/
+venv/
+env/
+
+# macOS / editor / temp
+.DS_Store
+*.swp
+*.swo
+*.tmp
+
+# optional local override config
+conf.d/routes/*.local.conf
+conf.d/routes/*-local.conf
